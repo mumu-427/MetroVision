@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# venv
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# 不要误传大文件/本地数据
+runs/
+data/
+clips/
+assets/
+*.mp4
+*.mov
+*.zip
+*.ckpt
+*.pt
+*.bin
