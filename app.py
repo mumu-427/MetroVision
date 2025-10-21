@@ -1,4 +1,4 @@
-# app/gradio_app.py — MetroVision · Black-Red-White Dashboard
+# app.py — MetroVision · Black-Red-White Dashboard (Hub-based model)
 
 # ---------- force English BEFORE importing gradio ----------
 import os
@@ -13,14 +13,17 @@ from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 from gradio.themes import Monochrome
 
-# ---------- paths ----------
-APP_DIR   = os.path.dirname(__file__)
-MODEL_DIR = os.path.abspath(os.path.join(APP_DIR, "..", "runs", "metrovision"))
-LOG       = os.path.join(MODEL_DIR, "preds.jsonl")
+# ---------- model from Hugging Face Hub ----------
+# 改成你的模型仓库名，或用环境变量 MODEL_ID 覆盖
+MODEL_ID = os.getenv("MODEL_ID", "YOUR_USERNAME/YOUR_MODEL_REPO")  # e.g. "mumu-427/metrovision-vit"
 
-# ---------- model ----------
-processor = AutoImageProcessor.from_pretrained(MODEL_DIR, use_fast=True)
-model     = AutoModelForImageClassification.from_pretrained(MODEL_DIR)
+# ---------- paths ----------
+APP_DIR = os.path.dirname(__file__)
+LOG     = os.path.join(APP_DIR, "preds.jsonl")   # 日志写到当前目录，避免依赖本地 runs/
+
+# ---------- load model ----------
+processor = AutoImageProcessor.from_pretrained(MODEL_ID, use_fast=True)
+model     = AutoModelForImageClassification.from_pretrained(MODEL_ID)
 model.eval()
 CLASSES = [model.config.id2label[i] for i in range(model.config.num_labels)]
 
@@ -33,7 +36,7 @@ def narrate(label, scores):
         "empty": "No people and static scene suggest ‘empty’.",
         "normal": "Looks like an ordinary commute."
     }.get(label, "")
-    return f"I think this is **{label}** ({scores[label]*100:.1f}%).\n\n> {tip}"
+    return f"I think this is **{label}** ({scores[label]*100:.1f}%).\n\n> {tip}\n\n*AI learned this definition from human uploads.*"
 
 # ---------- inference ----------
 def predict_pil(img, source="image"):
@@ -43,9 +46,12 @@ def predict_pil(img, source="image"):
     scores = {CLASSES[i]: float(probs[i]) for i in range(len(CLASSES))}
     top3   = dict(sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:3])
     label  = next(iter(top3))
-    os.makedirs(MODEL_DIR, exist_ok=True)
-    with open(LOG, "a") as f:
-        f.write(json.dumps({"ts": time.time(), "source": source, "top3": top3}) + "\n")
+    # log
+    try:
+        with open(LOG, "a") as f:
+            f.write(json.dumps({"ts": time.time(), "source": source, "top3": top3}) + "\n")
+    except Exception:
+        pass
     return top3, narrate(label, scores)
 
 def predict_image(image):
@@ -56,6 +62,7 @@ def predict_video(video):
     if video is None: return {}, ""
     tmp   = tempfile.mkdtemp()
     frame = os.path.join(tmp, "mid.jpg")
+    # 取中间帧（需要系统有 ffmpeg；在 Spaces 和大多数本地环境都可用）
     subprocess.run(
         ["ffmpeg","-y","-i",video,"-vf","select='eq(n,round(n/2))',scale='min(768,iw)':-2","-vframes","1",frame],
         check=True
@@ -74,63 +81,38 @@ THEME = Monochrome(primary_hue="red", neutral_hue="slate").set(
 )
 
 CSS = f"""
-/* ====== 全局底色：强制纯黑 ====== */
 :root, html, body, .gradio-container, .app, .main, .wrap, .block, .tabs, .tabitem {{
   background: #000 !important;
 }}
 #root{{ max-width:1120px; margin:0 auto; }}
 .gradio-container{{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
-
-/* ====== 标题霓虹红 ====== */
 .neon{{ color:{ACCENT}; text-shadow:0 0 14px rgba(255,59,59,.75); font-weight:800; letter-spacing:.6px; }}
-
-/* ====== Tab 强调红 ====== */
 .tabs .tab-nav button.selected{{ color:#fff; border-color:{ACCENT}; }}
 .tabs .tab-nav button:hover{{ color:#fff; }}
 .tabs .tab-nav{{ border-bottom:1px solid #1a1a1a; }}
-
-/* ====== 卡片 ====== */
 .card{{ background:linear-gradient(180deg,#0d0d0d 0%, #060606 100%);
         border:1px solid #141414; border-radius:18px; padding:16px;
         box-shadow:0 10px 30px rgba(0,0,0,.45); }}
 .gr-box{{ border-radius:16px !important; }}
 .label{{ font-weight:700; color:#e8e8e8; }}
-
-/* ====== Top-3 条形图：轨道改“白色”，填充红→粉→白 ====== */
 .top3{{ display:grid; gap:8px; }}
 .row{{ display:flex; justify-content:space-between; font-size:12px; color:#d0d0d0; }}
-.bar{{ height:10px; border-radius:8px; background:#ffffff33;   /* ← 白色半透明轨道 */ 
-       position:relative; overflow:hidden; }}
+.bar{{ height:10px; border-radius:8px; background:#ffffff33; position:relative; overflow:hidden; }}
 .bar>span{{ position:absolute; left:0; top:0; bottom:0;
             background:linear-gradient(90deg,{ACCENT},#ff6b6b,#ffffff);
             box-shadow:0 0 10px rgba(255,59,59,.35); }}
-
-/* ====== 隐藏页脚（“通过 API 使用 / 设置”） ====== */
 footer, [data-testid="block-portal"] footer{{ display:none !important; }}
-
-/* ====== 上传区：只保留图标，隐藏所有文字 ====== */
-/* Image */
 #img_up .file-drop .upload-text,
 #img_up .file-drop .upload-text *,
 #img_up .upload-zone .upload-text,
-#img_up .upload-zone .upload-text * {{
-  display:none !important; visibility:hidden !important;
-}}
-/* Video */
+#img_up .upload-zone .upload-text * {{ display:none !important; visibility:hidden !important; }}
 #vid_up .file-drop .upload-text,
 #vid_up .file-drop .upload-text *,
 #vid_up .upload-zone .upload-text,
-#vid_up .upload-zone .upload-text * {{
-  display:none !important; visibility:hidden !important;
-}}
-
-/* 保留/强化图标样式 */
+#vid_up .upload-zone .upload-text * {{ display:none !important; visibility:hidden !important; }}
 #img_up .file-drop svg, #vid_up .file-drop svg{{ width:48px; height:48px; opacity:.85; color:#e6e6e6; }}
-
-/* 为了兼容不同构建，兜底：把上传文字“透明化”（即便渲染也看不到） */
 #img_up .file-drop, #vid_up .file-drop{{ color:transparent !important; }}
 """
-
 
 def top3_to_html(d: dict):
     items = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:3]
@@ -196,10 +178,12 @@ with gr.Blocks(theme=THEME, css=CSS, title="MetroVision · Underground Vision") 
     btn_vid.click(_vid_wrap, inputs=vid, outputs=[top3_html_vid, txt_vid])
 
 if __name__ == "__main__":
+    # 在本地用 127.0.0.1；在 Spaces 上自动用 0.0.0.0
+    is_space = any(k in os.environ for k in ("SPACE_ID", "SYSTEM", "HF_SPACE"))
     demo.queue().launch(
-        server_name="127.0.0.1",
+        server_name="0.0.0.0" if is_space else "127.0.0.1",
         server_port=7860,
-        inbrowser=True,
+        inbrowser=not is_space,
         show_error=True,
         debug=True,
         show_api=False,
