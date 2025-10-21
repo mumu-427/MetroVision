@@ -15,7 +15,7 @@ from gradio.themes import Monochrome
 
 # ---------- model from Hugging Face Hub ----------
 # 改成你的模型仓库名，或用环境变量 MODEL_ID 覆盖
-MODEL_ID = os.getenv("MODEL_ID", "YOUR_USERNAME/YOUR_MODEL_REPO")  # e.g. "mumu-427/metrovision-vit"
+MODEL_ID = os.getenv("MODEL_ID", "mumu-427/metrovision-vit")  # e.g. "mumu-427/metrovision-vit"
 
 # ---------- paths ----------
 APP_DIR = os.path.dirname(__file__)
